@@ -1,0 +1,14 @@
+Namespace(no_progress_bar=False, log_interval=100, log_format=None, tensorboard_logdir=None, wandb_project=None, azureml_logging=False, seed=1, cpu=False, tpu=False, bf16=False, memory_efficient_bf16=False, fp16=False, memory_efficient_fp16=False, fp16_no_flatten_grads=False, fp16_init_scale=128, fp16_scale_window=None, fp16_scale_tolerance=0.0, min_loss_scale=0.0001, threshold_loss_scale=None, user_dir=None, empty_cache_freq=0, all_gather_list_size=16384, model_parallel_size=1, quantization_config_path=None, profile=False, reset_logging=False, suppress_crashes=False, criterion='cross_entropy', tokenizer=None, bpe=None, optimizer=None, lr_scheduler='fixed', scoring='bleu', task='translation', source_lang='en', target_lang='zh', trainpref='/home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/train', validpref='/home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/valid', testpref='/home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/test', align_suffix=None, destdir='data/data-bin/translation2019zh_520000', thresholdtgt=0, thresholdsrc=0, tgtdict=None, srcdict=None, nwordstgt=-1, nwordssrc=-1, alignfile=None, dataset_impl='mmap', joined_dictionary=True, only_source=False, padding_factor=8, workers=2)
+[en] Dictionary: 8040 types
+[en] /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/train.en: 513843 sents, 23943277 tokens, 0.0% replaced by <unk>
+[en] Dictionary: 8040 types
+[en] /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/valid.en: 5190 sents, 242499 tokens, 0.0% replaced by <unk>
+[en] Dictionary: 8040 types
+[en] /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/test.en: 1000 sents, 46530 tokens, 0.0% replaced by <unk>
+[zh] Dictionary: 8040 types
+[zh] /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/train.zh: 513843 sents, 17870589 tokens, 0.0% replaced by <unk>
+[zh] Dictionary: 8040 types
+[zh] /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/valid.zh: 5190 sents, 180370 tokens, 0.00665% replaced by <unk>
+[zh] Dictionary: 8040 types
+[zh] /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/test.zh: 1000 sents, 2000 tokens, 0.0% replaced by <unk>
+Wrote preprocessed data to data/data-bin/translation2019zh_520000

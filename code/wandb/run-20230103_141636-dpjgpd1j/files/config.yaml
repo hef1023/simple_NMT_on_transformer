@@ -1,0 +1,211 @@
+wandb_version: 1
+
+_wandb:
+  desc: null
+  value:
+    cli_version: 0.13.7
+    framework: torch
+    is_jupyter_run: true
+    is_kaggle_kernel: false
+    python_version: 3.9.15
+    start_time: 1672726596.877616
+    t:
+      1:
+      - 1
+      - 50
+      - 55
+      - 64
+      2:
+      - 1
+      - 50
+      - 55
+      - 64
+      3:
+      - 13
+      - 16
+      - 23
+      4: 3.9.15
+      5: 0.13.7
+      8:
+      - 1
+      - 5
+accum_steps:
+  desc: null
+  value: 2
+activation_dropout:
+  desc: null
+  value: 0.0
+activation_fn:
+  desc: null
+  value: relu
+adaptive_input:
+  desc: null
+  value: false
+adaptive_softmax_cutoff:
+  desc: null
+  value: null
+adaptive_softmax_dropout:
+  desc: null
+  value: 0
+attention_dropout:
+  desc: null
+  value: 0.0
+beam:
+  desc: null
+  value: 5
+checkpoint_activations:
+  desc: null
+  value: false
+clip_norm:
+  desc: null
+  value: 1.0
+cross_self_attention:
+  desc: null
+  value: false
+datadir:
+  desc: null
+  value: ./data/data-bin/translation2019zh_520000
+decoder_attention_heads:
+  desc: null
+  value: 4
+decoder_embed_dim:
+  desc: null
+  value: 256
+decoder_embed_path:
+  desc: null
+  value: null
+decoder_ffn_embed_dim:
+  desc: null
+  value: 1024
+decoder_input_dim:
+  desc: null
+  value: 256
+decoder_layerdrop:
+  desc: null
+  value: 0
+decoder_layers:
+  desc: null
+  value: 4
+decoder_layers_to_keep:
+  desc: null
+  value: null
+decoder_learned_pos:
+  desc: null
+  value: false
+decoder_normalize_before:
+  desc: null
+  value: true
+decoder_output_dim:
+  desc: null
+  value: 256
+dropout:
+  desc: null
+  value: 0.3
+encoder_attention_heads:
+  desc: null
+  value: 4
+encoder_embed_dim:
+  desc: null
+  value: 256
+encoder_embed_path:
+  desc: null
+  value: null
+encoder_ffn_embed_dim:
+  desc: null
+  value: 1024
+encoder_layerdrop:
+  desc: null
+  value: 0
+encoder_layers:
+  desc: null
+  value: 4
+encoder_layers_to_keep:
+  desc: null
+  value: null
+encoder_learned_pos:
+  desc: null
+  value: false
+encoder_normalize_before:
+  desc: null
+  value: true
+keep_last_epochs:
+  desc: null
+  value: 5
+layernorm_embedding:
+  desc: null
+  value: false
+lr_factor:
+  desc: null
+  value: 2.0
+lr_warmup:
+  desc: null
+  value: 4000
+max_epoch:
+  desc: null
+  value: 30
+max_len_a:
+  desc: null
+  value: 1.2
+max_len_b:
+  desc: null
+  value: 10
+max_source_positions:
+  desc: null
+  value: 1024
+max_target_positions:
+  desc: null
+  value: 1024
+max_tokens:
+  desc: null
+  value: 8192
+no_cross_attention:
+  desc: null
+  value: false
+no_scale_embedding:
+  desc: null
+  value: false
+no_token_positional_embeddings:
+  desc: null
+  value: false
+num_workers:
+  desc: null
+  value: 2
+post_process:
+  desc: null
+  value: sentencepiece
+quant_noise_pq:
+  desc: null
+  value: 0
+quant_noise_pq_block_size:
+  desc: null
+  value: 8
+quant_noise_scalar:
+  desc: null
+  value: 0
+resume:
+  desc: null
+  value: null
+savedir:
+  desc: null
+  value: ./checkpoints/transformer
+share_all_embeddings:
+  desc: null
+  value: false
+share_decoder_input_output_embed:
+  desc: null
+  value: true
+source_lang:
+  desc: null
+  value: en
+start_epoch:
+  desc: null
+  value: 1
+target_lang:
+  desc: null
+  value: zh
+tie_adaptive_weights:
+  desc: null
+  value: false
+use_wandb:
+  desc: null
+  value: true
