@@ -1,46 +1,218 @@
-> **实践报告**
->
-> 自然语言处理课程实践项目：simple NMT on transformer
->
-> 学号：2201931
->
-> 姓名：周航
+```python
+!nvidia-smi
+```
 
-本次实践基于 pytorch 框架，使用开源工具集 fairseq，构建了一个基于 transformer 的 seq2seq 模型，并完成了机器翻译任务，并得到了 20.18 的 BLEU 分数。
+    Wed Jan  4 04:22:13 2023       
+    +-----------------------------------------------------------------------------+
+    | NVIDIA-SMI 460.32.03    Driver Version: 460.32.03    CUDA Version: 11.2     |
+    |-------------------------------+----------------------+----------------------+
+    | GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+    | Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+    |                               |                      |               MIG M. |
+    |===============================+======================+======================|
+    |   0  Tesla T4            Off  | 00000000:00:04.0 Off |                    0 |
+    | N/A   48C    P0    27W /  70W |      0MiB / 15109MiB |      0%      Default |
+    |                               |                      |                  N/A |
+    +-------------------------------+----------------------+----------------------+
+                                                                                   
+    +-----------------------------------------------------------------------------+
+    | Processes:                                                                  |
+    |  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+    |        ID   ID                                                   Usage      |
+    |=============================================================================|
+    |  No running processes found                                                 |
+    +-----------------------------------------------------------------------------+
 
-由于算力限制，裁剪了 [中英翻译translation2019zh](https://www.kaggle.com/datasets/terrychanorg/translation2019zh) 数据集（520万个中英文平行语料）的一部分（1/10），进行清洗处理、拆分训练集、验证集、测试集后，转换为 fairseq 可以使用的二进制文件；然后设定实验参数，定义 seq2seq 模型框架，使用 fairseq 提供的 TransformerEncoder 和 TransformerDecoder，完成了模型的构建。在经过30个 Epoch 训练后，通过[观察指标](https://wandb.ai/stceum/simple_NMT_on_transformer/runs/odukn0r4/overview?workspace=user-stceum)可以发现模型基本收敛。
 
-模型的构建和训练过程如下：
 
-- [下载并 import 库](#下载并-import-库)
-- [数据集下载和前处理](#数据集下载和前处理)
-- [切分 train/valid set](#切分-trainvalid-set)
-- [分词](#分词)
-- [使用 fairseq 将数据转化为 binary](#使用-fairseq-将数据转化为-binary)
-- [设定实验参数](#设定实验参数)
-- [记录日志](#记录日志)
-- [CUDA 环境](#cuda-环境)
-- [读取数据集](#读取数据集)
-- [定义 Seq2Seq](#定义-seq2seq)
-- [模型初始化](#模型初始化)
-- [设定模型参数](#设定模型参数)
-- [Optimization](#optimization)
-- [Training](#training)
-- [validation and inference](#validation-and-inference)
-- [Save model and Load model](#save-model-and-load-model)
-- [主程序](#主程序)
-- [训练过程中各参数、指标变化情况](#训练过程中各参数指标变化情况)
-- [进行预测](#进行预测)
-- [可以优化模型的 point](#可以优化模型的-point)
+```python
+from google.colab import drive
+drive.mount('/content/drive')
+```
+
+    Drive already mounted at /content/drive; to attempt to forcibly remount, call drive.mount("/content/drive", force_remount=True).
+
+
+
+```python
+!ln -s /content/drive/MyDrive/Course/NLP/code/* ./
+```
+
+
+```python
+!git init
+```
+
+    Reinitialized existing Git repository in /content/.git/
 
 
 # 下载并 import 库
+
 
 ```python
 # install requirments
 !pip install -r ./requirements.txt
 !pip install --upgrade jupyter ipywidgets
 ```
+
+    Looking in indexes: https://pypi.org/simple, https://us-python.pkg.dev/colab-wheels/public/simple/
+    Requirement already satisfied: torch>=1.6.0 in /usr/local/lib/python3.8/dist-packages (from -r ./requirements.txt (line 1)) (1.13.0+cu116)
+    Requirement already satisfied: editdistance in /usr/local/lib/python3.8/dist-packages (from -r ./requirements.txt (line 2)) (0.5.3)
+    Requirement already satisfied: matplotlib in /usr/local/lib/python3.8/dist-packages (from -r ./requirements.txt (line 3)) (3.2.2)
+    Collecting sacrebleu
+      Downloading sacrebleu-2.3.1-py3-none-any.whl (118 kB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m118.9/118.9 KB[0m [31m13.0 MB/s[0m eta [36m0:00:00[0m
+    [?25hCollecting sacremoses
+      Downloading sacremoses-0.0.53.tar.gz (880 kB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m880.6/880.6 KB[0m [31m50.5 MB/s[0m eta [36m0:00:00[0m
+    [?25h  Preparing metadata (setup.py) ... [?25l[?25hdone
+    Collecting sentencepiece
+      Downloading sentencepiece-0.1.97-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (1.3 MB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m1.3/1.3 MB[0m [31m66.6 MB/s[0m eta [36m0:00:00[0m
+    [?25hRequirement already satisfied: tqdm in /usr/local/lib/python3.8/dist-packages (from -r ./requirements.txt (line 7)) (4.64.1)
+    Collecting wandb
+      Downloading wandb-0.13.7-py2.py3-none-any.whl (1.9 MB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m1.9/1.9 MB[0m [31m82.0 MB/s[0m eta [36m0:00:00[0m
+    [?25hRequirement already satisfied: typing-extensions in /usr/local/lib/python3.8/dist-packages (from torch>=1.6.0->-r ./requirements.txt (line 1)) (4.4.0)
+    Requirement already satisfied: pyparsing!=2.0.4,!=2.1.2,!=2.1.6,>=2.0.1 in /usr/local/lib/python3.8/dist-packages (from matplotlib->-r ./requirements.txt (line 3)) (3.0.9)
+    Requirement already satisfied: python-dateutil>=2.1 in /usr/local/lib/python3.8/dist-packages (from matplotlib->-r ./requirements.txt (line 3)) (2.8.2)
+    Requirement already satisfied: kiwisolver>=1.0.1 in /usr/local/lib/python3.8/dist-packages (from matplotlib->-r ./requirements.txt (line 3)) (1.4.4)
+    Requirement already satisfied: cycler>=0.10 in /usr/local/lib/python3.8/dist-packages (from matplotlib->-r ./requirements.txt (line 3)) (0.11.0)
+    Requirement already satisfied: numpy>=1.11 in /usr/local/lib/python3.8/dist-packages (from matplotlib->-r ./requirements.txt (line 3)) (1.21.6)
+    Collecting portalocker
+      Downloading portalocker-2.6.0-py2.py3-none-any.whl (15 kB)
+    Collecting colorama
+      Downloading colorama-0.4.6-py2.py3-none-any.whl (25 kB)
+    Requirement already satisfied: lxml in /usr/local/lib/python3.8/dist-packages (from sacrebleu->-r ./requirements.txt (line 4)) (4.9.2)
+    Requirement already satisfied: tabulate>=0.8.9 in /usr/local/lib/python3.8/dist-packages (from sacrebleu->-r ./requirements.txt (line 4)) (0.8.10)
+    Requirement already satisfied: regex in /usr/local/lib/python3.8/dist-packages (from sacrebleu->-r ./requirements.txt (line 4)) (2022.6.2)
+    Requirement already satisfied: six in /usr/local/lib/python3.8/dist-packages (from sacremoses->-r ./requirements.txt (line 5)) (1.15.0)
+    Requirement already satisfied: click in /usr/local/lib/python3.8/dist-packages (from sacremoses->-r ./requirements.txt (line 5)) (7.1.2)
+    Requirement already satisfied: joblib in /usr/local/lib/python3.8/dist-packages (from sacremoses->-r ./requirements.txt (line 5)) (1.2.0)
+    Collecting docker-pycreds>=0.4.0
+      Downloading docker_pycreds-0.4.0-py2.py3-none-any.whl (9.0 kB)
+    Collecting GitPython>=1.0.0
+      Downloading GitPython-3.1.30-py3-none-any.whl (184 kB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m184.0/184.0 KB[0m [31m23.8 MB/s[0m eta [36m0:00:00[0m
+    [?25hRequirement already satisfied: psutil>=5.0.0 in /usr/local/lib/python3.8/dist-packages (from wandb->-r ./requirements.txt (line 8)) (5.4.8)
+    Requirement already satisfied: requests<3,>=2.0.0 in /usr/local/lib/python3.8/dist-packages (from wandb->-r ./requirements.txt (line 8)) (2.25.1)
+    Requirement already satisfied: promise<3,>=2.0 in /usr/local/lib/python3.8/dist-packages (from wandb->-r ./requirements.txt (line 8)) (2.3)
+    Collecting setproctitle
+      Downloading setproctitle-1.3.2-cp38-cp38-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl (31 kB)
+    Collecting pathtools
+      Downloading pathtools-0.1.2.tar.gz (11 kB)
+      Preparing metadata (setup.py) ... [?25l[?25hdone
+    Requirement already satisfied: setuptools in /usr/local/lib/python3.8/dist-packages (from wandb->-r ./requirements.txt (line 8)) (57.4.0)
+    Collecting sentry-sdk>=1.0.0
+      Downloading sentry_sdk-1.12.1-py2.py3-none-any.whl (174 kB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m174.3/174.3 KB[0m [31m19.4 MB/s[0m eta [36m0:00:00[0m
+    [?25hRequirement already satisfied: PyYAML in /usr/local/lib/python3.8/dist-packages (from wandb->-r ./requirements.txt (line 8)) (6.0)
+    Collecting shortuuid>=0.5.0
+      Downloading shortuuid-1.0.11-py3-none-any.whl (10 kB)
+    Requirement already satisfied: protobuf!=4.21.0,<5,>=3.12.0 in /usr/local/lib/python3.8/dist-packages (from wandb->-r ./requirements.txt (line 8)) (3.19.6)
+    Collecting gitdb<5,>=4.0.1
+      Downloading gitdb-4.0.10-py3-none-any.whl (62 kB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m62.7/62.7 KB[0m [31m8.4 MB/s[0m eta [36m0:00:00[0m
+    [?25hRequirement already satisfied: urllib3<1.27,>=1.21.1 in /usr/local/lib/python3.8/dist-packages (from requests<3,>=2.0.0->wandb->-r ./requirements.txt (line 8)) (1.24.3)
+    Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.8/dist-packages (from requests<3,>=2.0.0->wandb->-r ./requirements.txt (line 8)) (2022.12.7)
+    Requirement already satisfied: idna<3,>=2.5 in /usr/local/lib/python3.8/dist-packages (from requests<3,>=2.0.0->wandb->-r ./requirements.txt (line 8)) (2.10)
+    Requirement already satisfied: chardet<5,>=3.0.2 in /usr/local/lib/python3.8/dist-packages (from requests<3,>=2.0.0->wandb->-r ./requirements.txt (line 8)) (4.0.0)
+    Collecting urllib3<1.27,>=1.21.1
+      Downloading urllib3-1.26.13-py2.py3-none-any.whl (140 kB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m140.6/140.6 KB[0m [31m20.4 MB/s[0m eta [36m0:00:00[0m
+    [?25hCollecting smmap<6,>=3.0.1
+      Downloading smmap-5.0.0-py3-none-any.whl (24 kB)
+    Building wheels for collected packages: sacremoses, pathtools
+      Building wheel for sacremoses (setup.py) ... [?25l[?25hdone
+      Created wheel for sacremoses: filename=sacremoses-0.0.53-py3-none-any.whl size=895260 sha256=444fee3fda3875a2a640ed625090dcbcf8a8962ada9229bc326dc79be75d5af9
+      Stored in directory: /root/.cache/pip/wheels/82/ab/9b/c15899bf659ba74f623ac776e861cf2eb8608c1825ddec66a4
+      Building wheel for pathtools (setup.py) ... [?25l[?25hdone
+      Created wheel for pathtools: filename=pathtools-0.1.2-py3-none-any.whl size=8806 sha256=147f65b660de5c7f052f2a60c4af58dab0ad3a627ecc26ae53b54f32cad3d90c
+      Stored in directory: /root/.cache/pip/wheels/4c/8e/7e/72fbc243e1aeecae64a96875432e70d4e92f3d2d18123be004
+    Successfully built sacremoses pathtools
+    Installing collected packages: sentencepiece, pathtools, urllib3, smmap, shortuuid, setproctitle, sacremoses, portalocker, docker-pycreds, colorama, sentry-sdk, sacrebleu, gitdb, GitPython, wandb
+      Attempting uninstall: urllib3
+        Found existing installation: urllib3 1.24.3
+        Uninstalling urllib3-1.24.3:
+          Successfully uninstalled urllib3-1.24.3
+    Successfully installed GitPython-3.1.30 colorama-0.4.6 docker-pycreds-0.4.0 gitdb-4.0.10 pathtools-0.1.2 portalocker-2.6.0 sacrebleu-2.3.1 sacremoses-0.0.53 sentencepiece-0.1.97 sentry-sdk-1.12.1 setproctitle-1.3.2 shortuuid-1.0.11 smmap-5.0.0 urllib3-1.26.13 wandb-0.13.7
+    Looking in indexes: https://pypi.org/simple, https://us-python.pkg.dev/colab-wheels/public/simple/
+    Collecting jupyter
+      Downloading jupyter-1.0.0-py2.py3-none-any.whl (2.7 kB)
+    Requirement already satisfied: ipywidgets in /usr/local/lib/python3.8/dist-packages (7.7.1)
+    Collecting ipywidgets
+      Downloading ipywidgets-8.0.4-py3-none-any.whl (137 kB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m137.8/137.8 KB[0m [31m14.9 MB/s[0m eta [36m0:00:00[0m
+    [?25hRequirement already satisfied: notebook in /usr/local/lib/python3.8/dist-packages (from jupyter) (5.7.16)
+    Requirement already satisfied: ipykernel in /usr/local/lib/python3.8/dist-packages (from jupyter) (5.3.4)
+    Requirement already satisfied: nbconvert in /usr/local/lib/python3.8/dist-packages (from jupyter) (5.6.1)
+    Collecting qtconsole
+      Downloading qtconsole-5.4.0-py3-none-any.whl (121 kB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m121.0/121.0 KB[0m [31m2.3 MB/s[0m eta [36m0:00:00[0m
+    [?25hRequirement already satisfied: jupyter-console in /usr/local/lib/python3.8/dist-packages (from jupyter) (6.1.0)
+    Requirement already satisfied: ipython>=6.1.0 in /usr/local/lib/python3.8/dist-packages (from ipywidgets) (7.9.0)
+    Requirement already satisfied: jupyterlab-widgets~=3.0 in /usr/local/lib/python3.8/dist-packages (from ipywidgets) (3.0.5)
+    Collecting widgetsnbextension~=4.0
+      Downloading widgetsnbextension-4.0.5-py3-none-any.whl (2.0 MB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m2.0/2.0 MB[0m [31m84.9 MB/s[0m eta [36m0:00:00[0m
+    [?25hRequirement already satisfied: traitlets>=4.3.1 in /usr/local/lib/python3.8/dist-packages (from ipywidgets) (5.7.1)
+    Requirement already satisfied: tornado>=4.2 in /usr/local/lib/python3.8/dist-packages (from ipykernel->jupyter) (6.0.4)
+    Requirement already satisfied: jupyter-client in /usr/local/lib/python3.8/dist-packages (from ipykernel->jupyter) (6.1.12)
+    Collecting jedi>=0.10
+      Downloading jedi-0.18.2-py2.py3-none-any.whl (1.6 MB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m1.6/1.6 MB[0m [31m79.8 MB/s[0m eta [36m0:00:00[0m
+    [?25hRequirement already satisfied: prompt-toolkit<2.1.0,>=2.0.0 in /usr/local/lib/python3.8/dist-packages (from ipython>=6.1.0->ipywidgets) (2.0.10)
+    Requirement already satisfied: backcall in /usr/local/lib/python3.8/dist-packages (from ipython>=6.1.0->ipywidgets) (0.2.0)
+    Requirement already satisfied: pexpect in /usr/local/lib/python3.8/dist-packages (from ipython>=6.1.0->ipywidgets) (4.8.0)
+    Requirement already satisfied: pygments in /usr/local/lib/python3.8/dist-packages (from ipython>=6.1.0->ipywidgets) (2.6.1)
+    Requirement already satisfied: setuptools>=18.5 in /usr/local/lib/python3.8/dist-packages (from ipython>=6.1.0->ipywidgets) (57.4.0)
+    Requirement already satisfied: pickleshare in /usr/local/lib/python3.8/dist-packages (from ipython>=6.1.0->ipywidgets) (0.7.5)
+    Requirement already satisfied: decorator in /usr/local/lib/python3.8/dist-packages (from ipython>=6.1.0->ipywidgets) (4.4.2)
+    Requirement already satisfied: jinja2>=2.4 in /usr/local/lib/python3.8/dist-packages (from nbconvert->jupyter) (2.11.3)
+    Requirement already satisfied: testpath in /usr/local/lib/python3.8/dist-packages (from nbconvert->jupyter) (0.6.0)
+    Requirement already satisfied: bleach in /usr/local/lib/python3.8/dist-packages (from nbconvert->jupyter) (5.0.1)
+    Requirement already satisfied: nbformat>=4.4 in /usr/local/lib/python3.8/dist-packages (from nbconvert->jupyter) (5.7.1)
+    Requirement already satisfied: pandocfilters>=1.4.1 in /usr/local/lib/python3.8/dist-packages (from nbconvert->jupyter) (1.5.0)
+    Requirement already satisfied: entrypoints>=0.2.2 in /usr/local/lib/python3.8/dist-packages (from nbconvert->jupyter) (0.4)
+    Requirement already satisfied: defusedxml in /usr/local/lib/python3.8/dist-packages (from nbconvert->jupyter) (0.7.1)
+    Requirement already satisfied: jupyter-core in /usr/local/lib/python3.8/dist-packages (from nbconvert->jupyter) (5.1.1)
+    Requirement already satisfied: mistune<2,>=0.8.1 in /usr/local/lib/python3.8/dist-packages (from nbconvert->jupyter) (0.8.4)
+    Requirement already satisfied: ipython-genutils in /usr/local/lib/python3.8/dist-packages (from notebook->jupyter) (0.2.0)
+    Requirement already satisfied: pyzmq>=17 in /usr/local/lib/python3.8/dist-packages (from notebook->jupyter) (23.2.1)
+    Requirement already satisfied: terminado>=0.8.1 in /usr/local/lib/python3.8/dist-packages (from notebook->jupyter) (0.13.3)
+    Requirement already satisfied: Send2Trash in /usr/local/lib/python3.8/dist-packages (from notebook->jupyter) (1.8.0)
+    Requirement already satisfied: prometheus-client in /usr/local/lib/python3.8/dist-packages (from notebook->jupyter) (0.15.0)
+    Collecting qtpy>=2.0.1
+      Downloading QtPy-2.3.0-py3-none-any.whl (83 kB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m83.6/83.6 KB[0m [31m12.2 MB/s[0m eta [36m0:00:00[0m
+    [?25hRequirement already satisfied: parso<0.9.0,>=0.8.0 in /usr/local/lib/python3.8/dist-packages (from jedi>=0.10->ipython>=6.1.0->ipywidgets) (0.8.3)
+    Requirement already satisfied: MarkupSafe>=0.23 in /usr/local/lib/python3.8/dist-packages (from jinja2>=2.4->nbconvert->jupyter) (2.0.1)
+    Requirement already satisfied: python-dateutil>=2.1 in /usr/local/lib/python3.8/dist-packages (from jupyter-client->ipykernel->jupyter) (2.8.2)
+    Requirement already satisfied: platformdirs>=2.5 in /usr/local/lib/python3.8/dist-packages (from jupyter-core->nbconvert->jupyter) (2.6.0)
+    Requirement already satisfied: fastjsonschema in /usr/local/lib/python3.8/dist-packages (from nbformat>=4.4->nbconvert->jupyter) (2.16.2)
+    Requirement already satisfied: jsonschema>=2.6 in /usr/local/lib/python3.8/dist-packages (from nbformat>=4.4->nbconvert->jupyter) (4.3.3)
+    Requirement already satisfied: six>=1.9.0 in /usr/local/lib/python3.8/dist-packages (from prompt-toolkit<2.1.0,>=2.0.0->ipython>=6.1.0->ipywidgets) (1.15.0)
+    Requirement already satisfied: wcwidth in /usr/local/lib/python3.8/dist-packages (from prompt-toolkit<2.1.0,>=2.0.0->ipython>=6.1.0->ipywidgets) (0.2.5)
+    Requirement already satisfied: packaging in /usr/local/lib/python3.8/dist-packages (from qtpy>=2.0.1->qtconsole->jupyter) (21.3)
+    Requirement already satisfied: ptyprocess in /usr/local/lib/python3.8/dist-packages (from terminado>=0.8.1->notebook->jupyter) (0.7.0)
+    Requirement already satisfied: webencodings in /usr/local/lib/python3.8/dist-packages (from bleach->nbconvert->jupyter) (0.5.1)
+    Requirement already satisfied: pyrsistent!=0.17.0,!=0.17.1,!=0.17.2,>=0.14.0 in /usr/local/lib/python3.8/dist-packages (from jsonschema>=2.6->nbformat>=4.4->nbconvert->jupyter) (0.19.2)
+    Requirement already satisfied: attrs>=17.4.0 in /usr/local/lib/python3.8/dist-packages (from jsonschema>=2.6->nbformat>=4.4->nbconvert->jupyter) (22.2.0)
+    Requirement already satisfied: importlib-resources>=1.4.0 in /usr/local/lib/python3.8/dist-packages (from jsonschema>=2.6->nbformat>=4.4->nbconvert->jupyter) (5.10.1)
+    Requirement already satisfied: pyparsing!=3.0.5,>=2.0.2 in /usr/local/lib/python3.8/dist-packages (from packaging->qtpy>=2.0.1->qtconsole->jupyter) (3.0.9)
+    Requirement already satisfied: zipp>=3.1.0 in /usr/local/lib/python3.8/dist-packages (from importlib-resources>=1.4.0->jsonschema>=2.6->nbformat>=4.4->nbconvert->jupyter) (3.11.0)
+    Installing collected packages: widgetsnbextension, jedi, qtpy, qtconsole, ipywidgets, jupyter
+      Attempting uninstall: widgetsnbextension
+        Found existing installation: widgetsnbextension 3.6.1
+        Uninstalling widgetsnbextension-3.6.1:
+          Successfully uninstalled widgetsnbextension-3.6.1
+      Attempting uninstall: ipywidgets
+        Found existing installation: ipywidgets 7.7.1
+        Uninstalling ipywidgets-7.7.1:
+          Successfully uninstalled ipywidgets-7.7.1
+    Successfully installed ipywidgets-8.0.4 jedi-0.18.2 jupyter-1.0.0 qtconsole-5.4.0 qtpy-2.3.0 widgetsnbextension-4.0.5
+
+
 
 ```python
 # install fairseq
@@ -49,6 +221,67 @@
 !cd fairseq && git checkout 9a1c497
 !pip install --upgrade ./fairseq/
 ```
+
+    Cloning into '/content/fairseq'...
+    remote: Enumerating objects: 34294, done.[K
+    remote: Total 34294 (delta 0), reused 0 (delta 0), pack-reused 34294[K
+    Receiving objects: 100% (34294/34294), 23.78 MiB | 14.86 MiB/s, done.
+    Resolving deltas: 100% (24980/24980), done.
+    Note: checking out '9a1c497'.
+    
+    You are in 'detached HEAD' state. You can look around, make experimental
+    changes and commit them, and you can discard any commits you make in this
+    state without impacting any branches by performing another checkout.
+    
+    If you want to create a new branch to retain commits you create, you may
+    do so (now or later) by using -b with the checkout command again. Example:
+    
+      git checkout -b <new-branch-name>
+    
+    HEAD is now at 9a1c4970 Make Hydra logging work with DDP (#1568)
+    Looking in indexes: https://pypi.org/simple, https://us-python.pkg.dev/colab-wheels/public/simple/
+    Processing ./fairseq
+      Installing build dependencies ... [?25l[?25hdone
+      Getting requirements to build wheel ... [?25l[?25hdone
+      Installing backend dependencies ... [?25l[?25hdone
+      Preparing metadata (pyproject.toml) ... [?25l[?25hdone
+    Collecting hydra-core<1.1
+      Downloading hydra_core-1.0.7-py3-none-any.whl (123 kB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m123.8/123.8 KB[0m [31m14.4 MB/s[0m eta [36m0:00:00[0m
+    [?25hRequirement already satisfied: cffi in /usr/local/lib/python3.8/dist-packages (from fairseq==1.0.0a0+9a1c497) (1.15.1)
+    Requirement already satisfied: sacrebleu>=1.4.12 in /usr/local/lib/python3.8/dist-packages (from fairseq==1.0.0a0+9a1c497) (2.3.1)
+    Requirement already satisfied: cython in /usr/local/lib/python3.8/dist-packages (from fairseq==1.0.0a0+9a1c497) (0.29.32)
+    Requirement already satisfied: regex in /usr/local/lib/python3.8/dist-packages (from fairseq==1.0.0a0+9a1c497) (2022.6.2)
+    Requirement already satisfied: numpy in /usr/local/lib/python3.8/dist-packages (from fairseq==1.0.0a0+9a1c497) (1.21.6)
+    Requirement already satisfied: torch in /usr/local/lib/python3.8/dist-packages (from fairseq==1.0.0a0+9a1c497) (1.13.0+cu116)
+    Collecting omegaconf<2.1
+      Downloading omegaconf-2.0.6-py3-none-any.whl (36 kB)
+    Requirement already satisfied: tqdm in /usr/local/lib/python3.8/dist-packages (from fairseq==1.0.0a0+9a1c497) (4.64.1)
+    Collecting antlr4-python3-runtime==4.8
+      Downloading antlr4-python3-runtime-4.8.tar.gz (112 kB)
+    [2K     [90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [32m112.4/112.4 KB[0m [31m15.7 MB/s[0m eta [36m0:00:00[0m
+    [?25h  Preparing metadata (setup.py) ... [?25l[?25hdone
+    Requirement already satisfied: importlib-resources in /usr/local/lib/python3.8/dist-packages (from hydra-core<1.1->fairseq==1.0.0a0+9a1c497) (5.10.1)
+    Requirement already satisfied: PyYAML>=5.1.* in /usr/local/lib/python3.8/dist-packages (from omegaconf<2.1->fairseq==1.0.0a0+9a1c497) (6.0)
+    Requirement already satisfied: typing-extensions in /usr/local/lib/python3.8/dist-packages (from omegaconf<2.1->fairseq==1.0.0a0+9a1c497) (4.4.0)
+    Requirement already satisfied: tabulate>=0.8.9 in /usr/local/lib/python3.8/dist-packages (from sacrebleu>=1.4.12->fairseq==1.0.0a0+9a1c497) (0.8.10)
+    Requirement already satisfied: colorama in /usr/local/lib/python3.8/dist-packages (from sacrebleu>=1.4.12->fairseq==1.0.0a0+9a1c497) (0.4.6)
+    Requirement already satisfied: portalocker in /usr/local/lib/python3.8/dist-packages (from sacrebleu>=1.4.12->fairseq==1.0.0a0+9a1c497) (2.6.0)
+    Requirement already satisfied: lxml in /usr/local/lib/python3.8/dist-packages (from sacrebleu>=1.4.12->fairseq==1.0.0a0+9a1c497) (4.9.2)
+    Requirement already satisfied: pycparser in /usr/local/lib/python3.8/dist-packages (from cffi->fairseq==1.0.0a0+9a1c497) (2.21)
+    Requirement already satisfied: zipp>=3.1.0 in /usr/local/lib/python3.8/dist-packages (from importlib-resources->hydra-core<1.1->fairseq==1.0.0a0+9a1c497) (3.11.0)
+    Building wheels for collected packages: fairseq, antlr4-python3-runtime
+      Building wheel for fairseq (pyproject.toml) ... [?25l[?25hdone
+      Created wheel for fairseq: filename=fairseq-1.0.0a0+9a1c497-cp38-cp38-linux_x86_64.whl size=4281183 sha256=e59d8d94ff6c0ef74de27b7c22adce62cc083840feec3bfd3b2984335343dc53
+      Stored in directory: /tmp/pip-ephem-wheel-cache-_pykjj_3/wheels/45/ac/c1/5c3c02c0e0520a71d95d020995fe3cecb9b9185ac4a3832ef6
+      Building wheel for antlr4-python3-runtime (setup.py) ... [?25l[?25hdone
+      Created wheel for antlr4-python3-runtime: filename=antlr4_python3_runtime-4.8-py3-none-any.whl size=141231 sha256=7d182d4f67e35f09ebc3a2aa64d28a53d92e80bd8800cb54ba27e0ace100857d
+      Stored in directory: /root/.cache/pip/wheels/c8/d0/ab/d43c02eaddc5b9004db86950802442ad9a26f279c619e28da0
+    Successfully built fairseq antlr4-python3-runtime
+    Installing collected packages: antlr4-python3-runtime, omegaconf, hydra-core, fairseq
+    Successfully installed antlr4-python3-runtime-4.8 fairseq-1.0.0a0+9a1c497 hydra-core-1.0.7 omegaconf-2.0.6
+
+
 
 ```python
 import sys
@@ -78,11 +311,12 @@ import matplotlib.pyplot as plt
 # 下载数据集 https://drive.google.com/open?id=1EX8eE5YWBxCaohBO8Fh4e2j3b9C2bTVQ 并放到 data/translation2019zh_520000 目录下
 !cd data/translation2019zh_520000 && unzip translation2019zh.zip
 ```
-output:
 
     Archive:  translation2019zh.zip
       inflating: translation2019zh_train.json  
       inflating: translation2019zh_valid.json  
+
+
 
 ```python
 data_dir = './data/'
@@ -92,6 +326,7 @@ prefix.mkdir(parents=True, exist_ok=True)
 train_size = 520000
 test_size = 1000
 ```
+
 
 ```python
 # 处理数据集
@@ -127,7 +362,6 @@ test_prefix = f'{prefix}/test.raw'
 !head {data_prefix+'.'+src_lang} -n 5
 !head {data_prefix+'.'+tgt_lang} -n 5
 ```
-output:
 
     For greater sharpness, but with a slight increase in graininess, you can use a 1:1 dilution of this developer.
     He calls the Green Book, his book of teachings, “the new gospel.
@@ -223,7 +457,6 @@ clean_corpus(test_prefix, src_lang, tgt_lang, ratio=-1, min_len=-1, max_len=-1)
 !head {data_prefix+'.clean.'+src_lang} -n 5
 !head {data_prefix+'.clean.'+tgt_lang} -n 5
 ```
-output:
 
     For greater sharpness , but with a slight increase in graininess , you can use a 1:1 dilution of this developer .
     He calls the Green Book , his book of teachings , “the new gospel .
@@ -236,7 +469,9 @@ output:
     它们的先烈们的鲜血是白流了…
     最后 , 在1月31日 , 湖人将前往汽车城底特律挑战活塞队 , 活塞近来在东部排名第二 。
 
+
 # 切分 train/valid set
+
 
 ```python
 valid_ratio = 0.01 # 1% of data
@@ -270,6 +505,7 @@ else:
 
 # 分词
 
+
 ```python
 import sentencepiece as spm
 vocab_size = 8000
@@ -290,6 +526,129 @@ else:
         normalization_rule_name='nmt_nfkc_cf',
     )
 ```
+
+    sentencepiece_trainer.cc(77) LOG(INFO) Starts training with : 
+    trainer_spec {
+      input: /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/train.clean.en
+      input: /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/valid.clean.en
+      input: /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/train.clean.zh
+      input: /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/valid.clean.zh
+      input_format: 
+      model_prefix: /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/spm8000
+      model_type: BPE
+      vocab_size: 8000
+      self_test_sample_size: 0
+      character_coverage: 1
+      input_sentence_size: 1000000
+      shuffle_input_sentence: 1
+      seed_sentencepiece_size: 1000000
+      shrinking_factor: 0.75
+      max_sentence_length: 4192
+      num_threads: 16
+      num_sub_iterations: 2
+      max_sentencepiece_length: 16
+      split_by_unicode_script: 1
+      split_by_number: 1
+      split_by_whitespace: 1
+      split_digits: 0
+      treat_whitespace_as_suffix: 0
+      allow_whitespace_only_pieces: 0
+      required_chars: 
+      byte_fallback: 0
+      vocabulary_output_piece_score: 1
+      train_extremely_large_corpus: 0
+      hard_vocab_limit: 1
+      use_all_vocab: 0
+      unk_id: 0
+      bos_id: 1
+      eos_id: 2
+      pad_id: -1
+      unk_piece: <unk>
+      bos_piece: <s>
+      eos_piece: </s>
+      pad_piece: <pad>
+      unk_surface:  ⁇ 
+      enable_differential_privacy: 0
+      differential_privacy_noise_level: 0
+      differential_privacy_clipping_threshold: 0
+    }
+    normalizer_spec {
+      name: nmt_nfkc_cf
+      add_dummy_prefix: 1
+      remove_extra_whitespaces: 1
+      escape_whitespaces: 1
+      normalization_rule_tsv: 
+    }
+    denormalizer_spec {}
+    trainer_interface.cc(350) LOG(INFO) SentenceIterator is not specified. Using MultiFileSentenceIterator.
+    trainer_interface.cc(181) LOG(INFO) Loading corpus: /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/train.clean.en
+    trainer_interface.cc(181) LOG(INFO) Loading corpus: /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/valid.clean.en
+    trainer_interface.cc(181) LOG(INFO) Loading corpus: /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/train.clean.zh
+    trainer_interface.cc(143) LOG(INFO) Loaded 1000000 lines
+    trainer_interface.cc(181) LOG(INFO) Loading corpus: /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/valid.clean.zh
+    trainer_interface.cc(408) LOG(INFO) Sampled 1000000 sentences from 1038066 sentences.
+    trainer_interface.cc(422) LOG(INFO) Adding meta_piece: <unk>
+    trainer_interface.cc(422) LOG(INFO) Adding meta_piece: <s>
+    trainer_interface.cc(422) LOG(INFO) Adding meta_piece: </s>
+    trainer_interface.cc(427) LOG(INFO) Normalizing sentences...
+    trainer_interface.cc(536) LOG(INFO) all chars count=79073867
+    trainer_interface.cc(547) LOG(INFO) Done: 100% characters are covered.
+    trainer_interface.cc(557) LOG(INFO) Alphabet size=7211
+    trainer_interface.cc(558) LOG(INFO) Final character coverage=1
+    trainer_interface.cc(590) LOG(INFO) Done! preprocessed 1000000 sentences.
+    trainer_interface.cc(596) LOG(INFO) Tokenizing input sentences with whitespace: 1000000
+    trainer_interface.cc(607) LOG(INFO) Done! 1368026
+    bpe_model_trainer.cc(167) LOG(INFO) Updating active symbols. max_freq=1433687 min_freq=35
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=407727 size=20 all=1024833 active=51996 piece=▁b
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=260039 size=40 all=1026185 active=53348 piece=▁h
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=123018 size=60 all=1027797 active=54960 piece=ation
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=88792 size=80 all=1029866 active=57029 piece=ver
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=69017 size=100 all=1031871 active=59034 piece=▁we
+    bpe_model_trainer.cc(167) LOG(INFO) Updating active symbols. max_freq=68435 min_freq=39
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=53658 size=120 all=1033898 active=53581 piece=her
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=48559 size=140 all=1037338 active=57021 piece=igh
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=40726 size=160 all=1043743 active=63426 piece=▁sp
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=34114 size=180 all=1048128 active=67811 piece=▁not
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=30544 size=200 all=1051094 active=70777 piece=ard
+    bpe_model_trainer.cc(167) LOG(INFO) Updating active symbols. max_freq=30483 min_freq=42
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=27934 size=220 all=1053417 active=54697 piece=▁cont
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=26049 size=240 all=1055812 active=57092 piece=out
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=23454 size=260 all=1061784 active=63064 piece=▁ar
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=21025 size=280 all=1065103 active=66383 piece=进行
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=19404 size=300 all=1072007 active=73287 piece=▁imp
+    bpe_model_trainer.cc(167) LOG(INFO) Updating active symbols. max_freq=19306 min_freq=43
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=17744 size=320 all=1074565 active=56115 piece=▁some
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=17127 size=340 all=1077421 active=58971 piece=▁part
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=16186 size=360 all=1082178 active=63728 piece=▁pre
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=15348 size=380 all=1088543 active=70093 piece=没有
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=14438 size=400 all=1095044 active=76594 piece=▁over
+    bpe_model_trainer.cc(167) LOG(INFO) Updating active symbols. max_freq=14401 min_freq=44
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=13601 size=420 all=1100116 active=59770 piece=ys
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=12990 size=440 all=1107135 active=66789 piece=ced
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=12422 size=460 all=1117541 active=77195 piece=▁und
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=11688 size=480 all=1122020 active=81674 piece=row
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=11241 size=500 all=1124335 active=83989 piece=▁bu
+    bpe_model_trainer.cc(167) LOG(INFO) Updating active symbols. max_freq=11178 min_freq=43
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=10623 size=520 all=1134425 active=66265 piece=▁sm
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=10249 size=540 all=1144639 active=76479 piece=▁differe
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=9895 size=560 all=1152546 active=84386 piece=ments
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=9442 size=580 all=1157179 active=89019 piece=les
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=9063 size=600 all=1162140 active=93980 piece=就是
+    bpe_model_trainer.cc(167) LOG(INFO) Updating active symbols. max_freq=9036 min_freq=42
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=8795 size=620 all=1166623 active=60473 piece=▁其
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=8565 size=640 all=1171301 active=65151 piece=ution
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=8279 size=660 all=1176225 active=70075 piece=ert
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=8031 size=680 all=1186209 active=80059 piece=erm
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=7778 size=700 all=1191872 active=85722 piece=▁sign
+    bpe_model_trainer.cc(167) LOG(INFO) Updating active symbols. max_freq=7771 min_freq=41
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=7505 size=720 all=1201188 active=68883 piece=▁par
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=7304 size=740 all=1209320 active=77014 piece=▁dep
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=7117 size=760 all=1215286 active=82980 piece=ron
+    bpe_model_trainer.cc(258) LOG(INFO) Added: freq=6925 size=780 all=1222085 active=89779 piece=▁results
+    trainer_interface.cc(685) LOG(INFO) Saving model: /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/spm8000.model
+    trainer_interface.cc(697) LOG(INFO) Saving vocabs: /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/spm8000.vocab
+
+
 
 ```python
 spm_model = spm.SentencePieceProcessor(model_file=str(prefix/f'spm{vocab_size}.model'))
@@ -318,8 +677,6 @@ for split in ['train', 'valid', 'test']:
 !head {data_dir+'/'+dataset_name+'/train.'+tgt_lang} -n 5
 ```
 
-output:
-
     ▁for ▁g re ater ▁sh ar p ness ▁, ▁but ▁with ▁a ▁s l ight ▁in cre ase ▁in ▁gra in iness ▁, ▁you ▁can ▁use ▁a ▁1 : 1 ▁d il ution ▁of ▁this ▁develop er ▁.
     ▁he ▁call s ▁the ▁g re en ▁bo ok ▁, ▁his ▁bo ok ▁of ▁te ach ings ▁, ▁ “ t he ▁new ▁g os p el ▁.
     ▁and ▁the ▁l ight ▁b ree z e ▁mo v es ▁me ▁to ▁c a ress ▁her ▁long ▁ear
@@ -331,7 +688,9 @@ output:
     ▁它 们 的 先 烈 们 的 鲜 血 是 白 流 了 .. .
     ▁ 最 后 ▁, ▁在 1 月 3 1 日 ▁, ▁ 湖 人 将 前 往 汽 车 城 底 特 律 挑 战 活 塞 队 ▁, ▁ 活 塞 近 来 在 东 部 排 名 第 二 ▁。
 
+
 # 使用 fairseq 将数据转化为 binary
+
 
 ```python
 binpath = Path('./data/data-bin', dataset_name)
@@ -349,7 +708,24 @@ else:
         --workers 2
 ```
 
+    2023-01-03 13:54:46 | INFO | fairseq_cli.preprocess | Namespace(no_progress_bar=False, log_interval=100, log_format=None, tensorboard_logdir=None, wandb_project=None, azureml_logging=False, seed=1, cpu=False, tpu=False, bf16=False, memory_efficient_bf16=False, fp16=False, memory_efficient_fp16=False, fp16_no_flatten_grads=False, fp16_init_scale=128, fp16_scale_window=None, fp16_scale_tolerance=0.0, min_loss_scale=0.0001, threshold_loss_scale=None, user_dir=None, empty_cache_freq=0, all_gather_list_size=16384, model_parallel_size=1, quantization_config_path=None, profile=False, reset_logging=False, suppress_crashes=False, criterion='cross_entropy', tokenizer=None, bpe=None, optimizer=None, lr_scheduler='fixed', scoring='bleu', task='translation', source_lang='en', target_lang='zh', trainpref='/home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/train', validpref='/home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/valid', testpref='/home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/test', align_suffix=None, destdir='data/data-bin/translation2019zh_520000', thresholdtgt=0, thresholdsrc=0, tgtdict=None, srcdict=None, nwordstgt=-1, nwordssrc=-1, alignfile=None, dataset_impl='mmap', joined_dictionary=True, only_source=False, padding_factor=8, workers=2)
+    2023-01-03 13:55:06 | INFO | fairseq_cli.preprocess | [en] Dictionary: 8040 types
+    2023-01-03 13:55:35 | INFO | fairseq_cli.preprocess | [en] /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/train.en: 513843 sents, 23224776 tokens, 0.0% replaced by <unk>
+    2023-01-03 13:55:35 | INFO | fairseq_cli.preprocess | [en] Dictionary: 8040 types
+    2023-01-03 13:55:36 | INFO | fairseq_cli.preprocess | [en] /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/valid.en: 5190 sents, 237177 tokens, 0.0% replaced by <unk>
+    2023-01-03 13:55:36 | INFO | fairseq_cli.preprocess | [en] Dictionary: 8040 types
+    2023-01-03 13:55:36 | INFO | fairseq_cli.preprocess | [en] /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/test.en: 1000 sents, 45068 tokens, 0.0% replaced by <unk>
+    2023-01-03 13:55:36 | INFO | fairseq_cli.preprocess | [zh] Dictionary: 8040 types
+    2023-01-03 13:56:01 | INFO | fairseq_cli.preprocess | [zh] /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/train.zh: 513843 sents, 18124423 tokens, 0.0% replaced by <unk>
+    2023-01-03 13:56:01 | INFO | fairseq_cli.preprocess | [zh] Dictionary: 8040 types
+    2023-01-03 13:56:01 | INFO | fairseq_cli.preprocess | [zh] /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/valid.zh: 5190 sents, 185498 tokens, 0.00755% replaced by <unk>
+    2023-01-03 13:56:01 | INFO | fairseq_cli.preprocess | [zh] Dictionary: 8040 types
+    2023-01-03 13:56:01 | INFO | fairseq_cli.preprocess | [zh] /home/stceum/simple_NMT_on_transformer/code/data/translation2019zh_520000/test.zh: 1000 sents, 2000 tokens, 0.0% replaced by <unk>
+    2023-01-03 13:56:01 | INFO | fairseq_cli.preprocess | Wrote preprocessed data to data/data-bin/translation2019zh_520000
+
+
 # 设定实验参数
+
 
 ```python
 config = Namespace(
@@ -395,6 +771,7 @@ config = Namespace(
 
 # 记录日志
 
+
 ```python
 logging.basicConfig(
     filename='run.log',
@@ -411,6 +788,31 @@ if config.use_wandb:
     wandb.init(project=proj, name=Path(config.savedir).stem, config=config)
 ```
 
+    ERROR:wandb.jupyter:Failed to detect the name of this notebook, you can set it manually with the WANDB_NOTEBOOK_NAME environment variable to enable code saving.
+    [34m[1mwandb[0m: Currently logged in as: [33mstceum[0m. Use [1m`wandb login --relogin`[0m to force relogin
+
+
+
+Tracking run with wandb version 0.13.7
+
+
+
+Run data is saved locally in <code>/content/wandb/run-20230104_042727-odukn0r4</code>
+
+
+
+Syncing run <strong><a href="https://wandb.ai/stceum/simple_NMT_on_transformer/runs/odukn0r4" target="_blank">transformer</a></strong> to <a href="https://wandb.ai/stceum/simple_NMT_on_transformer" target="_blank">Weights & Biases</a> (<a href="https://wandb.me/run" target="_blank">docs</a>)<br/>
+
+
+
+```python
+logger.setLevel(logging.INFO)
+logging.info("testing logging.info")
+```
+
+    INFO:root:testing logging.info
+
+
 # CUDA 环境
 
 
@@ -419,7 +821,6 @@ cuda_env = utils.CudaEnvironment()
 utils.CudaEnvironment.pretty_print_cuda_env_list([cuda_env])
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 ```
-output:
 
     INFO:fairseq.utils:***********************CUDA enviroments for all 1 workers***********************
     INFO:fairseq.utils:rank   0: capabilities =  7.5  ; total memory = 14.756 GB ; name = Tesla T4                                
@@ -445,8 +846,6 @@ task_cfg = TranslationConfig(
 task = TranslationTask.setup_task(task_cfg)
 ```
 
-output:
-
     INFO:fairseq.tasks.translation:[en] dictionary: 8040 types
     INFO:fairseq.tasks.translation:[zh] dictionary: 8040 types
 
@@ -457,8 +856,6 @@ logger.info("loading data for epoch 1")
 task.load_dataset(split="train", epoch=1, combine=True) # combine if you have back-translation data.
 task.load_dataset(split="valid", epoch=1)
 ```
-
-output:
 
     INFO:simple_NMT_on_transformer:loading data for epoch 1
     INFO:fairseq.data.data_utils:loaded 513,843 examples from: ./data/data-bin/translation2019zh_520000/train.en-zh.en
@@ -488,24 +885,25 @@ pprint.pprint(
     )
 )
 ```
-output:
 
     {'id': 1,
-     'source': tensor([13,129,458,15,587,91,71,7,828,282,4,776,
-                      1040,126,644,12,7,66,127,39,20,455,54,64,
-                      274,40,20,13,19,54,301,18,5,83,202,95,
-                      17,84,388,372,7,305,713,99,265,478,5,153,
-                      17,94,21,913,14,66,127,39,20,187,572,12,
-                      472,19,391,22,66,127,39,20,828,282,9,2]),
-      'target':tensor([4,654,1452,1418,774,210,321,314,629,192,238,221,
-                      1418,774,321,666,349,8,1285,513,710,5,4,839,
-                      213,661,917,1418,774,210,321,197,291,730,68,198,
-                      527,253,5,4,1750,568,836,361,1418,774,270,352,
-                      447,857,834,614,226,386,105,10,2])}
+     'source': tensor([  13,  129,  458,   15,  587,   91,   71,    7,  828,  282,    4,  776,
+            1040,  126,  644,   12,    7,   66,  127,   39,   20,  455,   54,   64,
+             274,   40,   20,   13,   19,   54,  301,   18,    5,   83,  202,   95,
+              17,   84,  388,  372,    7,  305,  713,   99,  265,  478,    5,  153,
+              17,   94,   21,  913,   14,   66,  127,   39,   20,  187,  572,   12,
+             472,   19,  391,   22,   66,  127,   39,   20,  828,  282,    9,    2]),
+     'target': tensor([   4,  654, 1452, 1418,  774,  210,  321,  314,  629,  192,  238,  221,
+            1418,  774,  321,  666,  349,    8, 1285,  513,  710,    5,    4,  839,
+             213,  661,  917, 1418,  774,  210,  321,  197,  291,  730,   68,  198,
+             527,  253,    5,    4, 1750,  568,  836,  361, 1418,  774,  270,  352,
+             447,  857,  834,  614,  226,  386,  105,   10,    2])}
     ('Source: in order to improve the production efficiency of the clothing '
      'manufacturing industry , it must combine the body measure , pattern design '
      'and clothing making of traditional clothing production .')
     'Target: 网络服装定制可以提高我国服装制造业的生产效率 , 需要将传统服装定制过程中的人体测量 , 纸样设计及服装加工等环节结合起来 。'
+
+
 
 ```python
 def load_data_iterator(task, split, epoch=1, max_tokens=4000, num_workers=1, cached=True):
@@ -531,20 +929,23 @@ demo_iter = demo_epoch_obj.next_epoch_itr(shuffle=True)
 sample = next(demo_iter)
 sample
 ```
-output:
 
     WARNING:fairseq.tasks.fairseq_task:4,839 samples have invalid sizes and will be skipped, max_positions=(20, 20), first few sample ids=[3483, 4196, 3436, 4199, 815, 1139, 2666, 4658, 4533, 2634]
+
+
+
+
 
     {'id': tensor([4384]),
      'nsentences': 1,
      'ntokens': 16,
-     'net_input': {'src_tokens': tensor([[1,1,1,1,1,1,1,7,1356,30,11,866,
-                                        1381,23,13,76,31,88,82,207,842,6,9,2]]),
+     'net_input': {'src_tokens': tensor([[   1,    1,    1,    1,    1,    1,    1,    7, 1356,   30,   11,  866,
+               1381,   23,   13,   76,   31,   88,   82,  207,  842,    6,    9,    2]]),
       'src_lengths': tensor([17]),
-      'prev_output_tokens': tensor([[2,320,262,583,8,247,461,1220,36,356,1001,1103,
-                                    2784,42,663,10]])},
-     'target': tensor([[320,262,583,8,247,461,1220,36,356,1001,1103,2784,
-                        42,663,10,2]])}
+      'prev_output_tokens': tensor([[   2,  320,  262,  583,    8,  247,  461, 1220,   36,  356, 1001, 1103,
+               2784,   42,  663,   10]])},
+     'target': tensor([[ 320,  262,  583,    8,  247,  461, 1220,   36,  356, 1001, 1103, 2784,
+                42,  663,   10,    2]])}
 
 
 
@@ -675,7 +1076,6 @@ if config.use_wandb:
 model = build_model(arch_args, task)
 logger.info(model)
 ```
-otuput:
 
     INFO:simple_NMT_on_transformer:Seq2Seq(
       (encoder): TransformerEncoder(
@@ -946,7 +1346,7 @@ plt.plot(np.arange(1, 100000), [optimizer.rate(i) for i in range(1, 100000)])
 plt.legend([f"{optimizer.model_size}:{optimizer.warmup}"])
 None
 ```
-output:
+
 
     
 ![png](seq2seq_transformer_files/seq2seq_transformer_49_0.png)
@@ -1177,6 +1577,33 @@ model = model.to(device=device)
 criterion = criterion.to(device=device)
 ```
 
+
+```python
+!nvidia-smi
+```
+
+    Wed Jan  4 04:28:57 2023       
+    +-----------------------------------------------------------------------------+
+    | NVIDIA-SMI 460.32.03    Driver Version: 460.32.03    CUDA Version: 11.2     |
+    |-------------------------------+----------------------+----------------------+
+    | GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+    | Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+    |                               |                      |               MIG M. |
+    |===============================+======================+======================|
+    |   0  Tesla T4            Off  | 00000000:00:04.0 Off |                    0 |
+    | N/A   43C    P0    27W /  70W |    620MiB / 15109MiB |      0%      Default |
+    |                               |                      |                  N/A |
+    +-------------------------------+----------------------+----------------------+
+                                                                                   
+    +-----------------------------------------------------------------------------+
+    | Processes:                                                                  |
+    |  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+    |        ID   ID                                                   Usage      |
+    |=============================================================================|
+    +-----------------------------------------------------------------------------+
+
+
+
 ```python
 logger.info("task: {}".format(task.__class__.__name__))
 logger.info("encoder: {}".format(model.encoder.__class__.__name__))
@@ -1191,8 +1618,6 @@ logger.info(
 )
 logger.info(f"max tokens per batch = {config.max_tokens}, accumulate steps = {config.accum_steps}")
 ```
-
-output:
 
     INFO:simple_NMT_on_transformer:task: TranslationTask
     INFO:simple_NMT_on_transformer:encoder: TransformerEncoder
@@ -1214,16 +1639,22 @@ while epoch_itr.next_epoch_idx <= config.max_epoch:
     logger.info("end of epoch {}".format(epoch_itr.epoch))    
     epoch_itr = load_data_iterator(task, "train", epoch_itr.next_epoch_idx, config.max_tokens, config.num_workers)
 ```
-output:
 
     INFO:simple_NMT_on_transformer:no checkpoints found at checkpoints/transformer/checkpoint_last.pt!
-<hr/>
 
-    train epoch 1:
+
+
+    train epoch 1:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 6.8841
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: as a result , the thick of branches has great effect on youg trees . it has direct relation with its survival rate , growing conditions as well as commercial rate of young fig trees .
     INFO:simple_NMT_on_transformer:example hypothesis: 然后 , 然后 , 然后 , 可可可用用用用用用用户 , 还有效效效效的影响 。
     INFO:simple_NMT_on_transformer:example reference: 试验结果表明 , 插穗粗度对无花果扦插育苗的成活率、生长状况及商品苗率均有影响 。
@@ -1231,13 +1662,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 0.56 11.8/1.0/0.2/0.1 (BP = 0.855 ratio = 0.864 hyp_len = 151249 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint1.pt
     INFO:simple_NMT_on_transformer:end of epoch 1
-<hr/>
 
-    train epoch 2: 
+
+
+    train epoch 2:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 5.3804
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: these landforms were dubbed tiankeng , or " naturally formed pits " .
     INFO:simple_NMT_on_transformer:example hypothesis: 这些文化是 " 的 " 或 " 或 " 是 " 或 " 的 " 。
     INFO:simple_NMT_on_transformer:example reference: 这些地貌现象被称作天坑 , 或者 " 自然形成的坑洞 " 。
@@ -1245,13 +1683,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 3.38 23.8/6.0/1.9/0.6 (BP = 0.962 ratio = 0.963 hyp_len = 168471 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint2.pt
     INFO:simple_NMT_on_transformer:end of epoch 2
-<hr/>
 
-    train epoch 3:
+
+
+    train epoch 3:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 4.9277
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: i have a stomachache . i think i got some bad food at lunch today .
     INFO:simple_NMT_on_transformer:example hypothesis: 我有一个故事 。 我认为我在今天的食物 。
     INFO:simple_NMT_on_transformer:example reference: 我肚子痛得厉害 ! 我想中午一定是吃了不干净的东西了 。
@@ -1259,13 +1704,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 5.92 34.2/11.4/4.5/1.8 (BP = 0.795 ratio = 0.813 hyp_len = 142263 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint3.pt
     INFO:simple_NMT_on_transformer:end of epoch 3
-<hr>
 
-    train epoch 4:
+
+
+    train epoch 4:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 4.6128
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: this could mean different things for different members of the spy ring , says mikhail lyubimov , a retired colonel of the kgb and a renowned cold war spy .
     INFO:simple_NMT_on_transformer:example hypothesis: 这可能意味着不同的环境的不同的东西 , 迈克·哈哈哈说 , 一个反映了kgb和一个红色的冷暖空间 。
     INFO:simple_NMT_on_transformer:example reference: 哈伊尔留比莫夫 , 一位退休的克格勃上校 , 冷战时期有名的间谍 , 说 , 在特工圈里 , 对不同的人来说 , 这些话有不用的意义 。
@@ -1273,13 +1725,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 10.07 36.9/14.7/6.6/3.0 (BP = 0.985 ratio = 0.985 hyp_len = 172360 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint4.pt
     INFO:simple_NMT_on_transformer:end of epoch 4
-<hr/>
 
-    train epoch 5:
+
+
+    train epoch 5:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 4.3600
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: it is believed that on december 21st , 1891 , the first basketball game in history was played .
     INFO:simple_NMT_on_transformer:example hypothesis: 18911年12月21日 , 1891年12月21日 , 第一次篮球游戏在历史上扮演了 。
     INFO:simple_NMT_on_transformer:example reference: 一般相信 , 在1891年十二月21日 , 在历史的第一场篮球游戏被打 。
@@ -1287,13 +1746,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 12.57 40.0/17.6/8.4/4.2 (BP = 1.000 ratio = 1.039 hyp_len = 181734 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint5.pt
     INFO:simple_NMT_on_transformer:end of epoch 5
-<hr/>
 
-    train epoch 6:
+
+
+    train epoch 6:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 4.1989
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: they also found almost no difference between methods in male and female workers , suggesting that careerdriven women were just as “competitive” during salary negotiations .
     INFO:simple_NMT_on_transformer:example hypothesis: 他们也发现了男性和女性工作者之间的差异 , 提示 , 职业驱动性女性只是 " 竞争性 " 。
     INFO:simple_NMT_on_transformer:example reference: 研究还发现 , 男性和女性员工在要求加薪的时候使用的方法基本相同 , 这说明了事业型女性在谈工资的时候和男性一样 " 强势 " 。
@@ -1301,13 +1767,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 13.54 51.4/23.8/11.9/6.2 (BP = 0.780 ratio = 0.801 hyp_len = 140119 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint6.pt
     INFO:simple_NMT_on_transformer:end of epoch 6
-<hr/>
 
-    train epoch 7:
+
+
+    train epoch 7:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 4.0671
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: for whatever reason , i tend to think of him as a lowprofile “insider , ” but his publication history belies this image .
     INFO:simple_NMT_on_transformer:example hypothesis: 无论如此 , 我倾向认为他是一个低级的 " 中文 " 的低级 " , 但他的出版历史相信这幅图像 。
     INFO:simple_NMT_on_transformer:example reference: 不管是什么原因 , 我认为他曾经的出版物 , 掩饰了他这个低调的权威人士 。
@@ -1315,13 +1788,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 15.81 50.2/23.8/12.1/6.5 (BP = 0.905 ratio = 0.909 hyp_len = 159099 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint7.pt
     INFO:simple_NMT_on_transformer:end of epoch 7
-<hr/>
 
-    train epoch 8:
+
+
+    train epoch 8:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.9738
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: this can be made a skip test to try to ping localhost if apache is in the process list .
     INFO:simple_NMT_on_transformer:example hypothesis: 这可以做一个skip测试来尝试试在过程列表中执行局部主机 。
     INFO:simple_NMT_on_transformer:example reference: 如果apache在进程列表中 , 则可以进行skip测试以尝试ping本地主机 。
@@ -1329,13 +1809,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 15.81 53.7/25.8/13.4/7.4 (BP = 0.822 ratio = 0.836 hyp_len = 146341 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint8.pt
     INFO:simple_NMT_on_transformer:end of epoch 8
-<hr/>
 
-    train epoch 9:
+
+
+    train epoch 9:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.9095
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: sit cross legged on the floor .
     INFO:simple_NMT_on_transformer:example hypothesis: 坐在地板上 。
     INFO:simple_NMT_on_transformer:example reference: 两腿交叉坐在地板上 。
@@ -1343,13 +1830,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 17.14 52.0/25.4/13.3/7.4 (BP = 0.903 ratio = 0.908 hyp_len = 158849 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint9.pt
     INFO:simple_NMT_on_transformer:end of epoch 9
-<hr/>
 
-    train epoch 10:
+
+
+    train epoch 10:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.8584
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: new york , us: nassau county police officers on horseback patrol outside the best buy electronics store on black friday , which marks the traditional start of the festive shopping season .
     INFO:simple_NMT_on_transformer:example hypothesis: 纽约:nasau县警察在星期五在最好的买电子商店 , 标志着传统的购物季节的传统开始 。
     INFO:simple_NMT_on_transformer:example reference: 纽约 , 美国:黑色星期五 , 拿索郡警务人员骑马在百思买电子商店外巡逻 , 标志着传统的节日购物季开始 。
@@ -1357,13 +1851,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 17.08 54.4/26.9/14.3/8.0 (BP = 0.844 ratio = 0.855 hyp_len = 149640 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint10.pt
     INFO:simple_NMT_on_transformer:end of epoch 10
-<hr/>
 
-    train epoch 11:
+
+
+    train epoch 11:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.8185
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: some cities are studying the halfway measure of banning them from bicycle lanes while permitting them on streets .
     INFO:simple_NMT_on_transformer:example hypothesis: 一些城市正在学习自行车车巷的半公路措施 , 同时允许他们在街上 。
     INFO:simple_NMT_on_transformer:example reference: 一些城市正在研究能否在禁止和允许电动车上街之间找到一个折中的办法 。
@@ -1371,13 +1872,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 17.80 54.1/26.9/14.3/8.1 (BP = 0.878 ratio = 0.885 hyp_len = 154884 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint11.pt
     INFO:simple_NMT_on_transformer:end of epoch 11
-<hr/>
 
-    train epoch 12:
+
+
+    train epoch 12:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.7876
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: it is widely used in car audio and video , tac machine , intelligent meter , solar power , electric car , electric power tool and military applications etc .
     INFO:simple_NMT_on_transformer:example hypothesis: 广泛应用于汽车和视频、塔机、智能计、太阳能、太阳能汽车、电力工具、军用应用等 。
     INFO:simple_NMT_on_transformer:example reference: 广泛应用于汽车音响、税控机、智能 " 三表 " 、太阳能、电动汽车、电动工具、军工等领域 。
@@ -1385,13 +1893,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 18.14 53.9/27.0/14.4/8.2 (BP = 0.891 ratio = 0.896 hyp_len = 156827 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint12.pt
     INFO:simple_NMT_on_transformer:end of epoch 12
-<hr/>
 
-    train epoch 13:
+
+
+    train epoch 13:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.7622
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: abandoned away by her lover , she pined away .
     INFO:simple_NMT_on_transformer:example hypothesis: 离开她的爱人 , 她把她的爱人抛弃了 。
     INFO:simple_NMT_on_transformer:example reference: 她因遭情人遗弃而日渐憔悴 。
@@ -1399,13 +1914,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 18.73 53.0/26.5/14.3/8.1 (BP = 0.933 ratio = 0.935 hyp_len = 163648 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint13.pt
     INFO:simple_NMT_on_transformer:end of epoch 13
-<hr/>
 
-    train epoch 14:
+
+
+    train epoch 14:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.7372
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: instead , while hong kong is feeling the heat of competition from china , its economy is thriving having just experienced its fastest three years of growth since the late 1980s .
     INFO:simple_NMT_on_transformer:example hypothesis: 相反 , 香港正感觉到中国的竞争热情 , 经济在1980年代末期以来最快的三年生长 。
     INFO:simple_NMT_on_transformer:example reference: 但相反的是 , 香港的经济正感受着中国的竟争热力 , 它兴旺繁荣 , 经历了自八十年代后期以来发展最快的三年 。
@@ -1413,13 +1935,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 18.02 56.0/28.3/15.2/8.7 (BP = 0.843 ratio = 0.854 hyp_len = 149497 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint14.pt
     INFO:simple_NMT_on_transformer:end of epoch 14
-<hr/>
 
-    train epoch 15:
+
+
+    train epoch 15:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.7171
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: the american plan also meets stern's other prescriptions for an effective green stimulus a concentration on building efficiency and renewable energy .
     INFO:simple_NMT_on_transformer:example hypothesis: 美国计划还遇到了斯特恩的其他预订 , 为有效的绿色刺激了建筑效率和可再生能源的浓度 。
     INFO:simple_NMT_on_transformer:example reference: 美国计划也符合stern为有效绿色刺激所提出的对策关注建筑效率和可更新能源 。
@@ -1427,13 +1956,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 18.57 55.7/28.2/15.3/8.7 (BP = 0.868 ratio = 0.876 hyp_len = 153215 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint15.pt
     INFO:simple_NMT_on_transformer:end of epoch 15
-<hr/>
 
-    train epoch 16:
+
+
+    train epoch 16:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.6988
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: way home i strode easy steps , wearing sandals , with my heart , " pops , " sings its song .
     INFO:simple_NMT_on_transformer:example hypothesis: 回家的路 , 我很容易 , 穿沙拉 , 心里 , " 波普斯 , " 唱它的歌曲 。
     INFO:simple_NMT_on_transformer:example reference: 回家的路上 , 我迈着轻松的步子 , 穿着的凉鞋 , 随着我的心情 " 啪啪 " 地唱着歌谣 。
@@ -1441,13 +1977,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 18.44 56.7/29.1/15.9/9.2 (BP = 0.833 ratio = 0.846 hyp_len = 148003 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint16.pt
     INFO:simple_NMT_on_transformer:end of epoch 16
-<hr/>
 
-    train epoch 17:
+
+
+    train epoch 17:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.6828
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: water went down his throat and he started to choke .
     INFO:simple_NMT_on_transformer:example hypothesis: 水从喉咙下来 , 他开始选择 。
     INFO:simple_NMT_on_transformer:example reference: 水进入他的喉咙 , 他开始呛住了 。
@@ -1455,13 +1998,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 19.32 54.8/27.9/15.2/8.7 (BP = 0.910 ratio = 0.914 hyp_len = 159848 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint17.pt
     INFO:simple_NMT_on_transformer:end of epoch 17
-<hr/>
 
-    train epoch 18:
+
+
+    train epoch 18:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.6685
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: american said in the u . s . borrow money on life , the car can not sell because the old lady and filled with goose six " economic crisis " is finally the haze has been wiped out .
     INFO:simple_NMT_on_transformer:example hypothesis: 美国人说 , 在美国借钱的生活中 , 汽车不能卖掉 , 因为老太太太太太太太不能满足6个 " 经济危机 " 最终被破坏了 。
     INFO:simple_NMT_on_transformer:example reference: 说到美国人都在靠借我们的钱生活 , 车厢里因为老婆婆卖不出六个鹅蛋而弥漫的 " 经济危机 " 的阴霾总算是一扫而光了 。
@@ -1469,13 +2019,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 18.27 57.3/29.4/16.0/9.2 (BP = 0.818 ratio = 0.833 hyp_len = 145763 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint18.pt
     INFO:simple_NMT_on_transformer:end of epoch 18
-<hr/>
 
-    train epoch 19:
+
+
+    train epoch 19:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.6561
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: increasing starch concentration had little influence on the gab parameters but nonetheless decreased aw .
     INFO:simple_NMT_on_transformer:example hypothesis: 增加淀粉浓度对gab参数有很少影响 , 但没有降低aw 。
     INFO:simple_NMT_on_transformer:example reference: 增加淀粉浓度影响小性别咨询参数 , 但下跌胡仙 。
@@ -1483,13 +2040,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 19.54 55.7/28.6/15.7/9.1 (BP = 0.894 ratio = 0.899 hyp_len = 157327 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint19.pt
     INFO:simple_NMT_on_transformer:end of epoch 19
-<hr/>
 
-    train epoch 20:
+
+
+    train epoch 20:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.6444
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: we analyses four main models of antimonopoly authority institution , and point that efficient power is very important to antimonopoly authority .
     INFO:simple_NMT_on_transformer:example hypothesis: 我们分析了反垄断机构的四大主要模式 , 指出有效电力对抗垄断权威非常重要 。
     INFO:simple_NMT_on_transformer:example reference: 本文首先对各国反垄断执法机构组织体制的四种典型模式进行比较分析 , 并认为拥有充分的执法权力是反垄断有效执法的关键 。
@@ -1497,13 +2061,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 19.60 56.0/28.8/15.8/9.2 (BP = 0.891 ratio = 0.897 hyp_len = 156866 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint20.pt
     INFO:simple_NMT_on_transformer:end of epoch 20
-<hr/>
 
-    train epoch 21:
+
+
+    train epoch 21:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.6338
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: my dad was diagnosed with multiple sclerosis in the prime of hellos life .
     INFO:simple_NMT_on_transformer:example hypothesis: 我的爸爸被诊断为hellos生命的多个硬化 。
     INFO:simple_NMT_on_transformer:example reference: 我爸爸被诊断有多种硬化症 , 当他丁壮的时辰 。
@@ -1511,13 +2082,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 18.73 58.2/30.1/16.6/9.6 (BP = 0.815 ratio = 0.830 hyp_len = 145284 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint21.pt
     INFO:simple_NMT_on_transformer:end of epoch 21
-<hr/>
 
-    train epoch 22:
+
+
+    train epoch 22:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.6248
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: friends lists: allow your users to maintain a list of their onsite friends , and see who others have added as friends .
     INFO:simple_NMT_on_transformer:example hypothesis: 朋友列表:允许您的用户维护他们的网站朋友的列表 , 并且看看其他朋友添加了谁 。
     INFO:simple_NMT_on_transformer:example reference: 朋友列表:允许用户以保持其在现场的朋友 , 看看谁其他人作为朋友加入名单 。
@@ -1525,13 +2103,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 19.74 55.7/28.6/15.7/9.1 (BP = 0.904 ratio = 0.908 hyp_len = 158918 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint22.pt
     INFO:simple_NMT_on_transformer:end of epoch 22
-<hr/>
 
-    train epoch 23:
+
+
+    train epoch 23:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.6140
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: stop messing about , boys ! i'm trying to do some reading .
     INFO:simple_NMT_on_transformer:example hypothesis: 停止消息 , 男孩 ! 我试图做一些阅读 。
     INFO:simple_NMT_on_transformer:example reference: 孩子们 , 别瞎闹 , 我想看一会儿书 。
@@ -1539,13 +2124,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 19.84 56.1/29.0/16.0/9.3 (BP = 0.895 ratio = 0.900 hyp_len = 157456 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint23.pt
     INFO:simple_NMT_on_transformer:end of epoch 23
-<hr/>
 
-    train epoch 24:
+
+
+    train epoch 24:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.6056
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: the team showed only those cells with ezh2 phosphorylated by cdk1 differentiated into bone cells .
     INFO:simple_NMT_on_transformer:example hypothesis: 研究小组只显示了由cdk1分化成骨细胞的ezh2磷的细胞 。
     INFO:simple_NMT_on_transformer:example reference: 本研究小组显示只有那些携带被cdk1磷酸化了的ezh2的细胞才会分化为骨细胞 。
@@ -1553,13 +2145,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 19.69 57.2/29.7/16.4/9.6 (BP = 0.867 ratio = 0.875 hyp_len = 153074 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint24.pt
     INFO:simple_NMT_on_transformer:end of epoch 24
-<hr/>
 
-    train epoch 25:
+
+
+    train epoch 25:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.5979
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: hybrid characters obviously show maternal heterosis , fruit setting date , fruit size and color if hybrid population all tend to follow the femal parent .
     INFO:simple_NMT_on_transformer:example hypothesis: 杂交字符显著表现出母亲异体、果实设定日期、果实尺寸和颜色 , 如果混合体人口往往跟踪胎儿父母 。
     INFO:simple_NMT_on_transformer:example reference: 杂种性状明显表现母性遗传优势 , 杂种群体结果的早晚 , 果实大小及颜色均有倾向母本的现象 。
@@ -1567,13 +2166,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 19.37 57.9/30.1/16.6/9.7 (BP = 0.841 ratio = 0.853 hyp_len = 149190 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint25.pt
     INFO:simple_NMT_on_transformer:end of epoch 25
-<hr/>
 
-    train epoch 26:
+
+
+    train epoch 26:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.5922
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: on december 15 , i reached an omnibus budget agreement with congress , the last major legislative victory of my eight years .
     INFO:simple_NMT_on_transformer:example hypothesis: 十五年12月15日 , 我与国会达成了一份omnibus预算协议 , 最后八年的立法胜利 。
     INFO:simple_NMT_on_transformer:example reference: 12月15日 , 我和国会达成了包括多项内容的一个预算协议 , 这也是八年来我取得的最后一次大的立法战胜利 。
@@ -1581,13 +2187,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 19.84 57.2/29.8/16.5/9.7 (BP = 0.870 ratio = 0.877 hyp_len = 153532 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint26.pt
     INFO:simple_NMT_on_transformer:end of epoch 26
-<hr/>
 
-    train epoch 27:
+
+
+    train epoch 27:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.5839
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: well , that was very decided indeed that does seem as if but , however , it may all come to nothing , you know .
     INFO:simple_NMT_on_transformer:example hypothesis: 然而 , 这确实是非常确定的 , 看起来似乎是假如但是 , 它可能都不会来 , 你知道 。
     INFO:simple_NMT_on_transformer:example reference: 说起来 , 那的确成了定论啦──看上去的确象是──不过 , 也许会全部落空呢 , 你知道 。
@@ -1595,13 +2208,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 20.06 56.8/29.5/16.3/9.5 (BP = 0.887 ratio = 0.893 hyp_len = 156255 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint27.pt
     INFO:simple_NMT_on_transformer:end of epoch 27
-<hr/>
 
-    train epoch 28:
+
+
+    train epoch 28:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.5770
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: recently unearthed fossils trace whales to a doglike predecessor of hoofed planteaters , and genetic analysis has identified hippos as whales' closest living relatives .
     INFO:simple_NMT_on_transformer:example hypothesis: 近年来 , 没有地球化石痕迹鲸到一群狗类的宿主植物的前任 , 遗传分析已经确定了鲸鱼最近的亲属性 。
     INFO:simple_NMT_on_transformer:example reference: 最近出土的化石使鲸的祖先可追溯到一种有蹄外形像狗的植食动物 , 而且基因分析证实了现存动物中河马是鲸的近亲 。
@@ -1609,13 +2229,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 20.18 57.0/29.8/16.5/9.7 (BP = 0.883 ratio = 0.890 hyp_len = 155649 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint28.pt
     INFO:simple_NMT_on_transformer:end of epoch 28
-<hr/>
 
-    train epoch 29:
+
+
+    train epoch 29:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.5699
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: let's get some more coffee first . i'd like a sandwich , too .
     INFO:simple_NMT_on_transformer:example hypothesis: 让我们先喝一些咖啡 , 我也喜欢一个三明治 。
     INFO:simple_NMT_on_transformer:example reference: 咱们得先喝点咖啡 , 我还想要块三明治 。
@@ -1623,13 +2250,20 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 19.96 57.3/29.8/16.5/9.7 (BP = 0.873 ratio = 0.881 hyp_len = 154126 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint29.pt
     INFO:simple_NMT_on_transformer:end of epoch 29
-<hr/>
 
-    train epoch 30:
+
+
+    train epoch 30:   0%|          | 0/767 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:training loss: 3.5655
     INFO:simple_NMT_on_transformer:begin validation
 
-    validation:
+
+
+    validation:   0%|          | 0/22 [00:00<?, ?it/s]
+
+
     INFO:simple_NMT_on_transformer:example source: does your stomach tense ? your breathing quicken ? your pulse race ? your hands tremble ? these sensations prevented carly simon from performing live for years .
     INFO:simple_NMT_on_transformer:example hypothesis: 你的胃紧张吗 ? 你的呼吸快吗 ? 你的脉冲赛 ? 你的手颤抖 ? 这些感觉阻止了几年的生命 。
     INFO:simple_NMT_on_transformer:example reference: 你的胃不舒服了 ? 你的呼吸急促了 ? 脉搏加快了 ? 手抖了 ?
@@ -1637,29 +2271,10 @@ output:
     INFO:simple_NMT_on_transformer:BLEU = 19.77 58.1/30.3/16.8/9.9 (BP = 0.849 ratio = 0.860 hyp_len = 150429 ref_len = 174972)
     INFO:simple_NMT_on_transformer:saved epoch checkpoint: /content/checkpoints/transformer/checkpoint30.pt
     INFO:simple_NMT_on_transformer:end of epoch 30
-<hr/>
 
-# 训练过程中各参数、指标变化情况
-
-训练指标通过 [wandb](https://wandb.ai/stceum/simple_NMT_on_transformer/runs/odukn0r4/overview?workspace=user-stceum) 记录
-
-- train/loss 变化曲线
-  
-  ![tran_loss](./figures/train_loss.svg#pic_center)
-
-- train/sample_size 变化曲线
-  
-  ![train/sample_size](./figures/train_sample_size.svg#pic_center)
-
-- train/grad_norm 变化曲线
-
-  ![train/grad_norm](./figures/train_grad_norm.svg#pic_center)
-
-- train/lr 变化曲线
-  
-  ![train/lr](figures/train_lr.svg)
 
 # 进行预测
+
 
 ```python
 def generate_prediction(model, task, split="test", outfile="./prediction.txt"):    
@@ -1699,9 +2314,12 @@ generate_prediction(model, task)
     INFO:fairseq.data.data_utils:loaded 1,000 examples from: ./data/data-bin/translation2019zh_520000/test.en-zh.zh
     INFO:fairseq.tasks.translation:./data/data-bin/translation2019zh_520000 test en-zh 1000 examples
 
-# 可以优化模型的 point
 
-1. 扩大数据集规模：在未榨干显卡性能的前提下，尽可能使用更大规模的数据集；
-   
-2. 利用已有的平行语料，训练一个反向的中->英的模型，使用同领域的 zh 单语数据集，预测出对应的英文，利用二者构建平行语料，然后融合到已有的平行语料中进行训练；
-   
+
+    prediction:   0%|          | 0/4 [00:00<?, ?it/s]
+
+
+
+```python
+!cp -r ./checkpoints /content/drive/MyDrive/Course/NLP/code
+```
