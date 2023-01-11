@@ -949,7 +949,7 @@ None
 output:
 
     
-![png](practice_report/figures/seq2seq_transformer_49_0.png#pic_center)
+![png](practice_report/figures/seq2seq_transformer_49_0.png)
     
 
 
@@ -1645,15 +1645,15 @@ output:
 
 - train/loss 变化曲线
   
-  ![tran_loss](practice_report/figures/train_loss.svg#pic_center)
+  ![tran_loss](practice_report/figures/train_loss.svg)
 
 - train/sample_size 变化曲线
   
-  ![train/sample_size](practice_report/figures/train_sample_size.svg#pic_center)
+  ![train/sample_size](practice_report/figures/train_sample_size.svg)
 
 - train/grad_norm 变化曲线
 
-  ![train/grad_norm](practice_report/figures/train_grad_norm.svg#pic_center)
+  ![train/grad_norm](practice_report/figures/train_grad_norm.svg)
 
 - train/lr 变化曲线
   
